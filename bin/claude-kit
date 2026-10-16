@@ -107,6 +107,11 @@ PY
       else npx -y skills add "$src" -g -s "$name" -a claude-code -y </dev/null >/dev/null 2>&1 && ok "$name (installed)" || warn "$name ($src) failed"; fi
     done
 
+  say "→ CLI"
+  link "$KIT_HOME/bin/claude-kit" "$HOME/.local/bin/claude-kit"
+  case ":$PATH:" in *":$HOME/.local/bin:"*) ok "claude-kit on PATH" ;;
+    *) warn "add ~/.local/bin to PATH (e.g. echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc)" ;; esac
+
   [ -n "$BACKUP" ] && say "  replaced files were backed up to $BACKUP"
   say "✔ Global setup done. Next, inside a repo: claude-kit project <name>"
 }
