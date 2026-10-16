@@ -1,0 +1,8 @@
+{
+  "name": "mobile",
+  "version": "2.0.0",
+  "description": "React Native / Expo, iOS first: new-screen, perf-audit, store-release skills; performance, accessibility and security reviewer agents (pair with expo@claude-plugins-official)",
+  "author": {
+    "name": "Tejas Nirala"
+  }
+}

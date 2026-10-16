@@ -1,0 +1,7 @@
+{
+  "skills": {
+    "find-skills": "vercel-labs/skills",
+    "ui-ux-pro-max": "nextlevelbuilder/ui-ux-pro-max-skill",
+    "security-audit": "cloudflare/security-audit-skill"
+  }
+}

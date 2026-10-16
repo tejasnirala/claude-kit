@@ -1,0 +1,31 @@
+{
+  "name": "tejas-kit",
+  "owner": {
+    "name": "Tejas Nirala"
+  },
+  "metadata": {
+    "description": "Tejas's shared Claude Code skills for web (React/Next.js) and mobile (React Native) work"
+  },
+  "plugins": [
+    {
+      "name": "web",
+      "source": "./plugins/web",
+      "description": "React / Next.js: new-page skill, web-accessibility-reviewer agent, Vercel best practices, UI library picker, prototyping"
+    },
+    {
+      "name": "mobile",
+      "source": "./plugins/mobile",
+      "description": "React Native / Expo, iOS first: new-screen, perf-audit, store-release skills; performance, accessibility and security reviewer agents (pair with expo@claude-plugins-official)"
+    },
+    {
+      "name": "design-eng",
+      "source": "./plugins/design-eng",
+      "description": "UI polish & motion: Emil Kowalski design-eng, Apple-style motion, animation build/audit/review"
+    },
+    {
+      "name": "eng-core",
+      "source": "./plugins/eng-core",
+      "description": "Core engineering: architect, code-reviewer, security-reviewer, debugger, test-writer agents; new-feature, verify, review-changes skills; architecture & domain-modeling skills"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "plugins": [
+    "jdtls-lsp@claude-plugins-official"
+  ]
+}

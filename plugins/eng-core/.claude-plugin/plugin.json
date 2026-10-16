@@ -1,0 +1,8 @@
+{
+  "name": "eng-core",
+  "version": "2.0.0",
+  "description": "Core engineering: architect, code-reviewer, security-reviewer, debugger, test-writer agents; new-feature, verify, review-changes skills; architecture & domain-modeling skills",
+  "author": {
+    "name": "Tejas Nirala"
+  }
+}

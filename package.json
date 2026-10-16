@@ -1,0 +1,9 @@
+{
+  "name": "claude-kit",
+  "version": "1.0.0",
+  "description": "Shared Claude Code setup: global rules, agents and skills, plus per-project stack rules via symlinks",
+  "bin": { "claude-kit": "bin/claude-kit" },
+  "files": ["bin", "global", "stacks", "plugins", ".claude-plugin", "scripts"],
+  "license": "MIT",
+  "private": true
+}

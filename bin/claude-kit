@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+# claude-kit — shared Claude Code setup.
+#   claude-kit [install] [--personal <git-url>]   global setup only (default)
+#   claude-kit project <name|path|git-url> [--stack web|mobile|java ...]
+#   claude-kit update | status | unlink [path] | help
+set -euo pipefail
+
+KIT_HOME="${CLAUDE_KIT_HOME:-$HOME/.claude/kit}"
+KIT_REPO="${CLAUDE_KIT_REPO:-https://github.com/tejasnirala/claude-kit.git}"
+C="$HOME/.claude"
+PERSONAL="$C/personal"
+STATE="$C/.kit-projects"
+
+# ---------- launched via npx (from the npm cache)? hand over to the real kit in ~/.claude/kit ----------
+SELF_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+if [ "$SELF_DIR" != "$KIT_HOME/bin" ] && [ -z "${CLAUDE_KIT_NO_HANDOFF:-}" ]; then
+  if [ -d "$KIT_HOME/.git" ]; then
+    git -C "$KIT_HOME" pull --ff-only -q 2>/dev/null || echo "• kit: couldn't fast-forward $KIT_HOME (local changes?) — using it as is"
+  else
+    mkdir -p "$C"; echo "→ Cloning kit into $KIT_HOME"; git clone -q "$KIT_REPO" "$KIT_HOME"
+  fi
+  exec "$KIT_HOME/bin/claude-kit" "$@"
+fi
+
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  ✓ %s\n' "$*"; }
+warn() { printf '  ⚠ %s\n' "$*"; }
+BACKUP=""
+backup_dir() { [ -n "$BACKUP" ] || { BACKUP="$C/backups/kit-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$BACKUP"; }; }
+
+# link <source> <target>: make target a symlink to source; back up a real file/dir that's in the way
+link() {
+  local src="$1" dst="$2"
+  if [ -L "$dst" ]; then
+    [ "$(readlink "$dst")" = "$src" ] && return 0
+    rm "$dst"
+  elif [ -e "$dst" ]; then
+    backup_dir; mv "$dst" "$BACKUP/$(echo "${dst#$HOME/}" | tr '/' '_')"
+  fi
+  mkdir -p "$(dirname "$dst")"; ln -s "$src" "$dst"
+}
+
+# remove symlinks in <dir> that point into the kit but whose source no longer exists
+prune_links() {
+  local dir="$1"; [ -d "$dir" ] || return 0
+  find "$dir" -maxdepth 1 -type l | while read -r l; do
+    case "$(readlink "$l")" in "$KIT_HOME"/*) [ -e "$l" ] || rm "$l" ;; esac
+  done
+}
+
+plugin_installed() { claude plugin list 2>/dev/null </dev/null | grep -q "❯ $1\$"; }
+
+# ======================================== global ========================================
+cmd_install() {
+  local personal_url=""
+  while [ $# -gt 0 ]; do case "$1" in --personal) personal_url="$2"; shift 2 ;; *) say "unknown option $1"; exit 1 ;; esac; done
+  command -v claude >/dev/null || { say "Install Claude Code first: https://claude.com/claude-code"; exit 1; }
+  command -v python3 >/dev/null || { say "python3 is required"; exit 1; }
+
+  say "→ Personal config"
+  if [ -n "$personal_url" ] && [ ! -d "$PERSONAL" ]; then git clone -q "$personal_url" "$PERSONAL" && ok "cloned $personal_url"
+  elif [ -d "$PERSONAL" ]; then ok "using $PERSONAL"
+  else ok "none (optional: claude-kit install --personal <private-git-url>)"; fi
+
+  say "→ Global files (symlinked from $KIT_HOME/global)"
+  link "$KIT_HOME/global/CLAUDE.md" "$C/CLAUDE.md"; ok "CLAUDE.md"
+  for f in "$KIT_HOME"/global/rules/*.md; do link "$f" "$C/rules/$(basename "$f")"; ok "rules/$(basename "$f")"; done
+  for d in "$KIT_HOME"/global/skills/*/; do d="${d%/}"; link "$d" "$C/skills/$(basename "$d")"; ok "skills/$(basename "$d")"; done
+  prune_links "$C/rules"; prune_links "$C/skills"
+
+  say "→ Settings (merged into $C/settings.json — not symlinked, Claude Code writes to it)"
+  python3 - "$C/settings.json" "$KIT_HOME/global/settings.base.json" "$PERSONAL/settings.json" <<'PY'
+import json, os, sys
+def merge(a, b):
+    for k, v in b.items():
+        a[k] = merge(a.get(k, {}), v) if isinstance(v, dict) and isinstance(a.get(k), dict) else v
+    return a
+dst = sys.argv[1]
+s = json.load(open(dst)) if os.path.exists(dst) else {}
+for src in sys.argv[2:]:
+    if os.path.exists(src): s = merge(s, json.load(open(src)))
+json.dump(s, open(dst, "w"), indent=2); open(dst, "a").write("\n")
+PY
+  ok "base$( [ -f "$PERSONAL/settings.json" ] && echo ' + personal overlay')"
+
+  say "→ Plugins"
+  claude plugin marketplace add anthropics/claude-plugins-official </dev/null >/dev/null 2>&1 || true
+  claude plugin marketplace add "$KIT_HOME" </dev/null >/dev/null 2>&1 || true
+  python3 - "$C/settings.json" <<'PY' | while read -r kind val; do
+import json, sys
+s = json.load(open(sys.argv[1]))
+for m in s.get("extraKnownMarketplaces", {}).values():
+    src = m.get("source", {}); r = src.get("repo") or src.get("url") or src.get("path")
+    if r and src.get("source") != "directory": print("mkt", r)
+for p, on in s.get("enabledPlugins", {}).items():
+    if on: print("plg", p)
+PY
+    if [ "$kind" = mkt ]; then claude plugin marketplace add "$val" </dev/null >/dev/null 2>&1 || true
+    elif plugin_installed "$val"; then ok "$val"
+    else claude plugin install "$val" -s user -y </dev/null >/dev/null 2>&1 && ok "$val (installed)" || warn "$val — install failed, try /plugin"; fi
+  done
+
+  say "→ Global skills (skills.sh)"
+  python3 -c "import json,sys;[print(k,v) for k,v in json.load(open(sys.argv[1]))['skills'].items()]" "$KIT_HOME/global/skills.json" \
+  | while read -r name src; do
+      if [ -e "$C/skills/$name" ]; then ok "$name"
+      else npx -y skills add "$src" -g -s "$name" -a claude-code -y </dev/null >/dev/null 2>&1 && ok "$name (installed)" || warn "$name ($src) failed"; fi
+    done
+
+  [ -n "$BACKUP" ] && say "  replaced files were backed up to $BACKUP"
+  say "✔ Global setup done. Next, inside a repo: claude-kit project <name>"
+}
+
+# ======================================== project ========================================
+resolve_project() {
+  local arg="$1"
+  case "$arg" in
+    *://*|git@*|*.git)
+      local name; name="$(basename "${arg%.git}")"
+      [ -d "$name" ] || { say "→ Cloning $arg"; git clone -q "$arg" "$name"; }
+      (cd "$name" && pwd); return ;;
+  esac
+  [ -d "$arg" ] && { (cd "$arg" && pwd); return; }
+  local hits
+  hits="$(find "$PWD" "$HOME" -maxdepth 4 \( -path "$HOME/Library" -o -path "$HOME/.*" -o -name node_modules \) -prune \
+          -o -type d -name "$arg" -print 2>/dev/null | while read -r d; do [ -e "$d/.git" ] && echo "$d"; done | sort -u || true)"
+  local n; n="$(printf '%s' "$hits" | grep -c . || true)"
+  if [ "$n" = 1 ]; then echo "$hits"
+  elif [ "$n" = 0 ]; then say "No git repo named '$arg' found under $PWD or ~. Clone it first, or pass a path or git URL." >&2; exit 1
+  else say "Several repos named '$arg':" >&2; printf '  %s\n' $hits >&2; say "Pass the path instead." >&2; exit 1; fi
+}
+
+detect_stacks() {
+  python3 - "$1" <<'PY'
+import json, os, sys
+root = sys.argv[1]; found = set()
+for dp, dns, fns in os.walk(root):
+    dns[:] = [d for d in dns if d not in ("node_modules", ".git", "dist", "build", ".next", "ios", "android", "target")]
+    if dp[len(root):].count(os.sep) > 3: dns[:] = []; continue
+    if "pom.xml" in fns or any(f.startswith("build.gradle") for f in fns): found.add("java")
+    if "package.json" in fns:
+        try: d = json.load(open(os.path.join(dp, "package.json")))
+        except Exception: continue
+        deps = {**d.get("dependencies", {}), **d.get("devDependencies", {})}
+        if "expo" in deps or "react-native" in deps: found.add("mobile")
+        elif "next" in deps or "react-dom" in deps: found.add("web")
+print(" ".join(sorted(found)))
+PY
+}
+
+cmd_project() {
+  [ $# -ge 1 ] || { say "usage: claude-kit project <name|path|git-url> [--stack web|mobile|java ...]"; exit 1; }
+  local target="$1"; shift; local stacks=()
+  while [ $# -gt 0 ]; do case "$1" in --stack) stacks+=("$2"); shift 2 ;; *) say "unknown option $1"; exit 1 ;; esac; done
+
+  local dir; dir="$(resolve_project "$target")"
+  say "→ Project: $dir"
+  [ "$(readlink "$C/CLAUDE.md" 2>/dev/null)" = "$KIT_HOME/global/CLAUDE.md" ] || { say "→ Global setup missing — installing first"; cmd_install; }
+
+  # stacks: --stack > .claude/kit.json (committed) > auto-detect
+  local cfg="$dir/.claude/kit.json" created_cfg=""
+  if [ ${#stacks[@]} -eq 0 ] && [ -f "$cfg" ]; then
+    read -r -a stacks <<< "$(python3 -c "import json,sys;print(' '.join(json.load(open(sys.argv[1])).get('stacks',[])))" "$cfg")"
+  fi
+  if [ ${#stacks[@]} -eq 0 ]; then read -r -a stacks <<< "$(detect_stacks "$dir")"; fi
+  for s in "${stacks[@]}"; do [ -d "$KIT_HOME/stacks/$s" ] && [ "$s" != common ] || { say "unknown stack: $s"; exit 1; }; done
+  if [ ! -f "$cfg" ]; then
+    mkdir -p "$dir/.claude"
+    python3 -c "import json,sys;json.dump({'stacks':sys.argv[1:],'excludeRules':[]},open('$cfg','w'),indent=2);open('$cfg','a').write('\n')" "${stacks[@]}"
+    created_cfg=1
+  fi
+  ok "stacks: common ${stacks[*]}$( [ -n "$created_cfg" ] && echo ' (detected → wrote .claude/kit.json; commit it)')"
+
+  # shared rules → @imports in a git-ignored CLAUDE.local.md (Claude Code ignores project symlinks that point outside
+  # the repo, so we reference the kit files instead of linking them — still one copy on disk, no duplication).
+  # A project's own rule with the same name wins.
+  local excl imports=""
+  excl="$(python3 -c "import json,sys;print(' '.join(json.load(open(sys.argv[1])).get('excludeRules',[])))" "$cfg")"
+  rm -rf "$dir/.claude/rules/kit"   # links from an older kit version
+  for s in common "${stacks[@]}"; do
+    for f in "$KIT_HOME/stacks/$s/rules/"*.md; do
+      local b; b="$(basename "$f" .md)"
+      if [[ " $excl " == *" $b "* ]]; then ok "rule $b (excluded by kit.json)"; continue; fi
+      if [ -e "$dir/.claude/rules/$b.md" ]; then ok "rule $b (project has its own — kept)"; continue; fi
+      imports="$imports@~/${f#$HOME/}"$'\n'; ok "rule $b ← kit/stacks/$s"
+    done
+  done
+  python3 - "$dir/CLAUDE.local.md" "$imports" <<'PY'
+import os, re, sys
+path, imports = sys.argv[1], sys.argv[2]
+block = ("<!-- claude-kit:start (managed by `claude-kit project` — edit outside this block) -->\n"
+         "Shared rules from claude-kit (~/.claude/kit/stacks):\n" + imports + "<!-- claude-kit:end -->\n")
+s = open(path).read() if os.path.exists(path) else ""
+pat = re.compile(r"<!-- claude-kit:start.*?<!-- claude-kit:end -->\n?", re.S)
+s = pat.sub(lambda _: block, s) if pat.search(s) else (s + ("\n" if s and not s.endswith("\n") else "") + block)
+open(path, "w").write(s)
+PY
+  ok "CLAUDE.local.md: imports updated (first launch asks once to allow imports from outside the repo — accept)"
+
+  # keep kit links and personal settings out of git (local exclude — no change to the repo's .gitignore)
+  local gitdir; gitdir="$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null || true)"
+  if [ -n "$gitdir" ]; then
+    case "$gitdir" in /*) ;; *) gitdir="$dir/$gitdir" ;; esac
+    mkdir -p "$gitdir/info"; touch "$gitdir/info/exclude"
+    for line in "CLAUDE.local.md" ".claude/settings.local.json"; do
+      grep -qxF "$line" "$gitdir/info/exclude" || echo "$line" >> "$gitdir/info/exclude"
+    done
+    ok "git: CLAUDE.local.md + settings.local.json ignored via .git/info/exclude"
+  else warn "not a git repo — nothing to ignore"; fi
+
+  # stack plugins, enabled for this project only (settings.local.json)
+  for s in common "${stacks[@]}"; do
+    python3 -c "import json,sys;[print(p) for p in json.load(open(sys.argv[1]))['plugins']]" "$KIT_HOME/stacks/$s/stack.json"
+  done | sort -u | while read -r p; do
+    (cd "$dir" && claude plugin install "$p" -s local -y </dev/null >/dev/null 2>&1) && ok "plugin $p (this project)" || warn "plugin $p failed — try /plugin in the project"
+  done
+
+  # project CLAUDE.md is project-specific → real file, created once from the stack skeleton
+  if [ ! -e "$dir/CLAUDE.md" ] && [ ${#stacks[@]} -gt 0 ]; then
+    cp "$KIT_HOME/stacks/${stacks[0]}/CLAUDE.md" "$dir/CLAUDE.md"; ok "CLAUDE.md created from the ${stacks[0]} skeleton — fill in the <placeholders> and commit it"
+  else ok "CLAUDE.md: project's own"; fi
+
+  touch "$STATE"; grep -qxF "$dir" "$STATE" || echo "$dir" >> "$STATE"
+  say "✔ Ready. cd \"$dir\" && claude"
+}
+
+cmd_unlink() {
+  local dir; dir="$(cd "${1:-.}" && pwd)"
+  rm -rf "$dir/.claude/rules/kit"
+  [ -f "$dir/CLAUDE.local.md" ] && python3 - "$dir/CLAUDE.local.md" <<'PY'
+import os, re, sys
+p = sys.argv[1]; s = re.sub(r"<!-- claude-kit:start.*?<!-- claude-kit:end -->\n?", "", open(p).read(), flags=re.S)
+os.remove(p) if not s.strip() else open(p, "w").write(s)
+PY
+  [ -f "$STATE" ] && { grep -vxF "$dir" "$STATE" > "$STATE.tmp" || true; mv "$STATE.tmp" "$STATE"; }
+  say "✔ Removed kit rule imports from $dir (plugins enabled in settings.local.json are left; disable with /plugin)"
+}
+
+cmd_update() {
+  say "→ Updating kit"; git -C "$KIT_HOME" pull --ff-only -q 2>/dev/null && ok "kit pulled" || warn "kit not pulled (no remote or local changes)"
+  [ -d "$PERSONAL/.git" ] && { git -C "$PERSONAL" pull --ff-only -q 2>/dev/null && ok "personal pulled" || warn "personal not pulled"; }
+  claude plugin marketplace update tejas-kit </dev/null >/dev/null 2>&1 || true
+  cmd_install
+  [ -f "$STATE" ] && while read -r d; do [ -d "$d" ] && cmd_project "$d" || warn "skipped missing project $d"; done < "$STATE"
+}
+
+cmd_status() {
+  say "Kit: $KIT_HOME ($(git -C "$KIT_HOME" log -1 --format='%h %cr' 2>/dev/null || echo 'not a git repo'))"
+  say "Personal: $( [ -d "$PERSONAL" ] && echo "$PERSONAL" || echo none)"
+  say "Global links:"
+  for l in "$C/CLAUDE.md" "$C"/rules/* "$C"/skills/*; do
+    [ -L "$l" ] && case "$(readlink "$l")" in "$KIT_HOME"/*) printf '  %-40s → %s\n' "${l#$C/}" "$(readlink "$l" | sed "s|$KIT_HOME/||")" ;; esac
+  done
+  say "Projects:"
+  [ -f "$STATE" ] && while read -r d; do
+    printf '  %-45s %s rule imports, stacks: %s\n' "${d#$HOME/}" "$(grep -c '^@~/.claude/kit/' "$d/CLAUDE.local.md" 2>/dev/null || echo 0)" \
+      "$(python3 -c "import json,sys;print(' '.join(json.load(open(sys.argv[1])).get('stacks',[])))" "$d/.claude/kit.json" 2>/dev/null || echo '?')"
+  done < "$STATE"
+}
+
+case "${1:-install}" in
+  install) shift || true; cmd_install "$@" ;;
+  --personal) cmd_install "$@" ;;
+  project) shift; cmd_project "$@" ;;
+  update)  cmd_update ;;
+  status)  cmd_status ;;
+  unlink)  shift; cmd_unlink "$@" ;;
+  help|-h|--help) sed -n '2,6p' "$0" | sed 's/^# //' ;;
+  *) say "unknown command: $1"; sed -n '2,6p' "$0" | sed 's/^# //'; exit 1 ;;
+esac

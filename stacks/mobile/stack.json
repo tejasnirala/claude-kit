@@ -1,0 +1,7 @@
+{
+  "plugins": [
+    "mobile@tejas-kit",
+    "expo@claude-plugins-official",
+    "swift-lsp@claude-plugins-official"
+  ]
+}
