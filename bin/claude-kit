@@ -174,7 +174,7 @@ cmd_project() {
   done
   if [ ! -f "$cfg" ]; then
     mkdir -p "$dir/.claude"
-    python3 -c "import json,sys;json.dump({'stacks':sys.argv[1:],'excludeRules':[]},open('$cfg','w'),indent=2);open('$cfg','a').write('\n')" "${stacks[@]:-}"
+    python3 -c "import json,sys;json.dump({'stacks':[s for s in sys.argv[1:] if s],'excludeRules':[]},open('$cfg','w'),indent=2);open('$cfg','a').write('\n')" "${stacks[@]:-}"
     created_cfg=1
   fi
   ok "stacks: common ${stacks[*]:-}$( [ -n "$created_cfg" ] && echo ' (detected → wrote .claude/kit.json; commit it)')"
