@@ -168,13 +168,16 @@ cmd_project() {
     read -r -a stacks <<< "$(python3 -c "import json,sys;print(' '.join(json.load(open(sys.argv[1])).get('stacks',[])))" "$cfg")"
   fi
   if [ ${#stacks[@]} -eq 0 ]; then read -r -a stacks <<< "$(detect_stacks "$dir")"; fi
-  for s in "${stacks[@]}"; do [ -d "$KIT_HOME/stacks/$s" ] && [ "$s" != common ] || { say "unknown stack: $s"; exit 1; }; done
+  for s in "${stacks[@]:-}"; do
+    [ -z "$s" ] && continue
+    [ -d "$KIT_HOME/stacks/$s" ] && [ "$s" != common ] || { say "unknown stack: $s"; exit 1; }
+  done
   if [ ! -f "$cfg" ]; then
     mkdir -p "$dir/.claude"
-    python3 -c "import json,sys;json.dump({'stacks':sys.argv[1:],'excludeRules':[]},open('$cfg','w'),indent=2);open('$cfg','a').write('\n')" "${stacks[@]}"
+    python3 -c "import json,sys;json.dump({'stacks':sys.argv[1:],'excludeRules':[]},open('$cfg','w'),indent=2);open('$cfg','a').write('\n')" "${stacks[@]:-}"
     created_cfg=1
   fi
-  ok "stacks: common ${stacks[*]}$( [ -n "$created_cfg" ] && echo ' (detected → wrote .claude/kit.json; commit it)')"
+  ok "stacks: common ${stacks[*]:-}$( [ -n "$created_cfg" ] && echo ' (detected → wrote .claude/kit.json; commit it)')"
 
   # shared rules → @imports in a git-ignored CLAUDE.local.md (Claude Code ignores project symlinks that point outside
   # the repo, so we reference the kit files instead of linking them — still one copy on disk, no duplication).
@@ -182,7 +185,8 @@ cmd_project() {
   local excl imports=""
   excl="$(python3 -c "import json,sys;print(' '.join(json.load(open(sys.argv[1])).get('excludeRules',[])))" "$cfg")"
   rm -rf "$dir/.claude/rules/kit"   # links from an older kit version
-  for s in common "${stacks[@]}"; do
+  for s in common "${stacks[@]:-}"; do
+    [ -z "$s" ] && continue
     for f in "$KIT_HOME/stacks/$s/rules/"*.md; do
       local b; b="$(basename "$f" .md)"
       if [[ " $excl " == *" $b "* ]]; then ok "rule $b (excluded by kit.json)"; continue; fi
@@ -214,7 +218,8 @@ PY
   else warn "not a git repo — nothing to ignore"; fi
 
   # stack plugins, enabled for this project only (settings.local.json)
-  for s in common "${stacks[@]}"; do
+  for s in common "${stacks[@]:-}"; do
+    [ -z "$s" ] && continue
     python3 -c "import json,sys;[print(p) for p in json.load(open(sys.argv[1]))['plugins']]" "$KIT_HOME/stacks/$s/stack.json"
   done | sort -u | while read -r p; do
     (cd "$dir" && claude plugin install "$p" -s local -y </dev/null >/dev/null 2>&1) && ok "plugin $p (this project)" || warn "plugin $p failed — try /plugin in the project"
