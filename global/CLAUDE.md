@@ -98,6 +98,24 @@ Keep existing docs **current**, don't create new ones unprompted:
   one-line justification next to it.
 - Never delete or overwrite files, data or branches you didn't create without asking first.
 
+## Agent delegation (multi-agent by default)
+
+Default to a multi-agent architecture instead of doing everything inline, so the main thread's context and token
+spend stay small. Before working through a non-trivial task yourself, ask whether a subagent should do it:
+
+- **Research/exploration whose raw output you won't need again** (reading many files, running searches, digging
+  through logs) → fork yourself (`subagent_type: "fork"`) so the noise stays out of the main context.
+- **Well-scoped specialist work** → the matching agent from the installed set (`architect` for design,
+  `code-reviewer` / `security-reviewer` before a PR, `debugger` for root-causing, `test-writer` for coverage).
+  Prefer these over doing the specialist's job inline.
+- **Several independent tasks** (no shared state, no sequential dependency) → dispatch them as parallel agents in
+  one message rather than one after another.
+- **Skip delegation** for trivial edits, one-file lookups, or anything where spawning would cost more than it saves
+  — don't over-spawn for its own sake.
+
+This applies in every project, every repo, every directory — it's a standing default, not something to re-decide
+per task.
+
 ## Where Claude Code config goes
 
 To add or change agents, skills, rules, commands, hooks or settings, use the `claude-setup` skill.
