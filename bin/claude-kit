@@ -100,13 +100,6 @@ PY
     else claude plugin install "$val" -s user -y </dev/null >/dev/null 2>&1 && ok "$val (installed)" || warn "$val — install failed, try /plugin"; fi
   done
 
-  say "→ Global skills (skills.sh)"
-  python3 -c "import json,sys;[print(k,v) for k,v in json.load(open(sys.argv[1]))['skills'].items()]" "$KIT_HOME/global/skills.json" \
-  | while read -r name src; do
-      if [ -e "$C/skills/$name" ]; then ok "$name"
-      else npx -y skills add "$src" -g -s "$name" -a claude-code -y </dev/null >/dev/null 2>&1 && ok "$name (installed)" || warn "$name ($src) failed"; fi
-    done
-
   say "→ CLI"
   link "$KIT_HOME/bin/claude-kit" "$HOME/.local/bin/claude-kit"
   case ":$PATH:" in *":$HOME/.local/bin:"*) ok "claude-kit on PATH" ;;

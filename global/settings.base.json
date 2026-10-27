@@ -12,6 +12,7 @@
     "mattpocock-skills@claude-plugins-official": true,
     "eng-core@tejas-kit": true,
     "design-eng@tejas-kit": true,
+    "shared-skills@tejas-kit": true,
     "paper-desktop@paper": true,
     "ponytail@ponytail": true,
     "coding-agent-skills@anthropic-plugin-directory": true,

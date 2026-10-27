@@ -26,6 +26,11 @@
       "name": "eng-core",
       "source": "./plugins/eng-core",
       "description": "Core engineering: architect, code-reviewer, security-reviewer, debugger, test-writer agents; new-feature, verify, review-changes skills; architecture & domain-modeling skills"
+    },
+    {
+      "name": "shared-skills",
+      "source": "./plugins/shared-skills",
+      "description": "Third-party skills with no plugin of their own: find-skills, security-audit, ui-ux-pro-max, animation-vocabulary, find-animation-opportunities"
     }
   ]
 }

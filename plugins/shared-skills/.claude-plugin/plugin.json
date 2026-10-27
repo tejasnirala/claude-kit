@@ -1,0 +1,8 @@
+{
+  "name": "shared-skills",
+  "version": "1.0.0",
+  "description": "Third-party skills with no plugin of their own: find-skills, security-audit, ui-ux-pro-max, animation-vocabulary, find-animation-opportunities",
+  "author": {
+    "name": "Tejas Nirala"
+  }
+}
